@@ -6,60 +6,45 @@
     <title>הכנסת נתונים לטבלה עם מפה</title>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.7.1/dist/leaflet.css" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.css" />
-    <script src="https://unpkg.com/leaflet@1.7.1/dist/leaflet.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/dom-to-image/2.6.0/dom-to-image.min.js"></script>
     <style>
         body { font-family: Arial, sans-serif; background-color: #f4f4f9; text-align: right; }
-        h2 { color: #333; margin-top: 20px; }
-        table { width: 80%; margin: 20px auto; border-collapse: collapse; }
+        h2 { text-align: center; color: #333; margin-top: 50px; }
+        table { width: 80%; margin: 30px auto; border-collapse: collapse; direction: rtl; }
         th, td { padding: 12px; text-align: center; border: 1px solid #ddd; }
         th { background-color: #4CAF50; color: white; }
         tr:nth-child(even) { background-color: #f2f2f2; }
         tr:hover { background-color: #ddd; }
         #map { height: 400px; width: 100%; }
         #mapContainer { display: none; position: fixed; top: 0; left: 0; z-index: 1000; width: 100%; height: 100%; background: rgba(0, 0, 0, 0.7); }
-        button { margin-top: 10px; padding: 10px; background-color: #4CAF50; color: white; border: none; cursor: pointer; border-radius: 5px; }
+        button { margin-top: 20px; padding: 10px 20px; background-color: #4CAF50; color: white; border: none; cursor: pointer; border-radius: 5px; }
         .form-container { margin-top: 20px; text-align: center; }
-        .form-container input, .form-container select { width: 100%; padding: 10px; margin: 5px 0; }
-        .map-preview img { width: 100%; max-width: 400px; margin-top: 10px; border: 1px solid #ddd; }
+        .form-container input, .form-container select, .form-container textarea { width: 100%; padding: 10px; margin: 10px 0; }
     </style>
 </head>
 <body>
-
     <h2>הוסף נתונים לטבלה</h2>
     <form id="dataForm">
         <label for="startDate">תאריך התחלה:</label>
         <input type="date" id="startDate" required><br><br>
-
         <label for="endDate">תאריך סיום:</label>
         <input type="date" id="endDate" required><br><br>
-
         <label for="event">אירוע:</label>
         <input type="text" id="event" required><br><br>
-
         <label for="eventType">סוג אירוע:</label>
         <select id="eventType" required>
             <option value="תאונה">תאונה</option>
             <option value="עבודות תשתית">עבודות תשתית</option>
             <option value="אירוע ביטחוני">אירוע ביטחוני</option>
-            <option value="רכב תקוע בכביש">רכב תקוע בכביש</option>
+            <option value="רכב תקוע">רכב תקוע</option>
         </select><br><br>
-
         <label for="location">מיקום (פוליגון):</label>
         <input type="text" id="location" readonly><br><br>
-
+        <label for="filesInPolygon">קבצים בפוליגון:</label>
+        <input type="text" id="filesInPolygon" readonly><br><br>
         <button type="button" id="openMapBtn">בחר מיקום במפה</button>
-
-        <div class="map-preview">
-            <h3>תצוגת מפה:</h3>
-            <img id="mapPreview" src="" alt="תצוגת מפה">
-        </div>
-
         <button type="submit">הוסף נתון</button>
     </form>
 
-    <h3>הנתונים בטבלה</h3>
     <table id="dataTable">
         <thead>
             <tr>
@@ -69,87 +54,71 @@
                 <th>סוג אירוע</th>
                 <th>מיקום</th>
                 <th>קבצים בפוליגון</th>
-                <th>תמונה</th>
             </tr>
         </thead>
         <tbody></tbody>
     </table>
 
-    <!-- מפת נתונים -->
     <div id="mapContainer">
         <div id="map"></div>
         <button onclick="closeMap()">סגור</button>
     </div>
 
+    <script src="https://unpkg.com/leaflet@1.7.1/dist/leaflet.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.js"></script>
     <script>
-        var map, drawnItems, polygon, routesLayer;
+        var map, drawnItems, polygon;
+
+        // פונקציה להגדיר את התאריכים להיום
+        window.onload = function() {
+            // קבלת התאריך של היום בפורמט yyyy-mm-dd
+            var today = new Date();
+            var day = ("0" + today.getDate()).slice(-2);
+            var month = ("0" + (today.getMonth() + 1)).slice(-2);
+            var year = today.getFullYear();
+            var formattedDate = year + "-" + month + "-" + day;
+            
+            // הגדרת תאריך ההתחלה ותאריך הסיום כתאריך של היום
+            document.getElementById('startDate').value = formattedDate;
+            document.getElementById('endDate').value = formattedDate;
+        };
 
         function initializeMap() {
-            map = L.map('map').setView([31.7683, 35.2137], 7);  // מיקום התחלתי
+            map = L.map('map').setView([31.7683, 35.2137], 7);
             L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
             drawnItems = new L.FeatureGroup();
             map.addLayer(drawnItems);
-
-            var drawControl = new L.Control.Draw({
-                draw: { polygon: true },
+            new L.Control.Draw({
+                draw: { polygon: true, marker: false, circle: false, rectangle: false, polyline: false },
                 edit: { featureGroup: drawnItems }
-            });
-            map.addControl(drawControl);
-
+            }).addTo(map);
             map.on(L.Draw.Event.CREATED, function (event) {
                 drawnItems.clearLayers();
-                var layer = event.layer;
-                drawnItems.addLayer(layer);
-                polygon = layer.toGeoJSON();
-                document.getElementById('location').value = JSON.stringify(polygon.geometry);
-                captureMapImage();
-                focusOnPolygon(layer);
+                polygon = event.layer;
+                drawnItems.addLayer(polygon);
+                document.getElementById('location').value = JSON.stringify(polygon.toGeoJSON().geometry.coordinates);
+                checkGeoJSONInPolygon();
             });
         }
-
-        function focusOnPolygon(layer) {
-            // הגדל את המפה על הפוליגרון
-            var bounds = layer.getBounds();
-            map.fitBounds(bounds, { padding: [50, 50] });  // הגדלת הריווח סביב הפוליגרון
-            map.setZoom(map.getZoom() + 2);  // הגדלת הזום על המפה
+        
+        function checkGeoJSONInPolygon() {
+            fetch('https://api.github.com/repos/CostaFanous/Gtfs_Costa/contents/')
+                .then(response => response.json())
+                .then(files => {
+                    let matchingFiles = [];
+                    let locationData = document.getElementById('location').value;
+                    files.filter(file => file.name.endsWith('.geojson')).forEach(file => {
+                        matchingFiles.push(file.name);
+                    });
+                    document.getElementById('filesInPolygon').value = matchingFiles.join(', ');
+                });
         }
-
-        function captureMapImage() {
-            // צילום תמונה אחרי שהמפה זזה והוזמנה עם זום פנימה
-            domtoimage.toPng(document.getElementById('map')).then(function (dataUrl) {
-                document.getElementById('mapPreview').src = dataUrl;
-            });
-        }
-
-        document.getElementById('openMapBtn').addEventListener('click', function () {
+        
+        document.getElementById('openMapBtn').addEventListener('click', function() {
             document.getElementById('mapContainer').style.display = 'block';
             initializeMap();
         });
-
-        function closeMap() {
-            document.getElementById('mapContainer').style.display = 'none';
-        }
-
-        document.getElementById("dataForm").addEventListener("submit", function (event) {
-            event.preventDefault();
-            var startDate = document.getElementById("startDate").value;
-            var endDate = document.getElementById("endDate").value;
-            var eventName = document.getElementById("event").value;
-            var eventType = document.getElementById("eventType").value;
-            var location = document.getElementById("location").value;
-            var mapImage = document.getElementById("mapPreview").src;
-
-            document.querySelector("#dataTable tbody").innerHTML += `
-                <tr>
-                    <td>${startDate}</td>
-                    <td>${endDate}</td>
-                    <td>${eventName}</td>
-                    <td>${eventType}</td>
-                    <td>${location}</td>
-                    <td><img src="${mapImage}" width="100"></td>
-                </tr>`;
-        });
+        function closeMap() { document.getElementById('mapContainer').style.display = 'none'; }
     </script>
-
 </body>
 </html>
