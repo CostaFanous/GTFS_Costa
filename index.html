@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OpenStreetMap with GeoJSON</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.css" />
+    <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.js"></script>
+    <style>
+        body { margin: 0; padding: 0; }
+        #map { position: absolute; top: 0; left: 0; width: 80%; height: 100vh; }
+        #menu { position: absolute; top: 10px; right: 10px; background: white; padding: 10px; width: 200px; height: 90vh; overflow-y: scroll; }
+        #menu h3 { margin: 0 0 10px; }
+        #menu input { width: 100%; padding: 5px; margin-bottom: 10px; }
+        #menu ul { list-style-type: none; padding: 0; }
+        #menu li { cursor: pointer; padding: 5px; background-color: #f4f4f4; margin-bottom: 5px; border-radius: 5px; }
+        #menu li:hover { background-color: #ddd; }
+        #menu li.selected { background-color: #dcdcdc; font-weight: bold; }
+        #polygon-table { margin-top: 20px; width: 100%; border-collapse: collapse; }
+        #polygon-table th, #polygon-table td { padding: 8px; text-align: left; border: 1px solid #ddd; }
+    </style>
+</head>
+<body>
+    <div id="map"></div>
+    <div id="menu">
+        <h3>בחר מסלול</h3>
+        <input type="text" id="searchInput" placeholder="חפש קובץ...">
+        <ul id="routes-list">
+            <!-- תפריט מסלולים ייטען כאן -->
+        </ul>
+        <h3>חפש כתובת או קואורדינטות</h3>
+        <input type="text" id="searchAddress" placeholder="חפש כתובת...">
+        <input type="text" id="searchCoordinates" placeholder="הזן נ"צ (lat,lng)">
+        <h3>קבצים בתוך הפוליגון</h3>
+        <table id="polygon-table" style="display:none;">
+            <thead>
+                <tr>
+                    <th>שם קובץ</th>
+                </tr>
+            </thead>
+            <tbody>
+                <!-- טבלה תתמלא כאן -->
+            </tbody>
+        </table>
+    </div>
+
+    <script>
+        var map = L.map('map').setView([31.961748996085923, 34.803420173733016], 11);
+
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+        }).addTo(map);
+
+        var currentLayer = null;
+        var markers = [];
+        var circles = []; // מערך לשמירה על העיגולים
+
+        function addGeoJSON(url) {
+            if (currentLayer) {
+                map.removeLayer(currentLayer);
+            }
+            markers.forEach(marker => map.removeLayer(marker));
+            markers = [];
+            circles.forEach(circle => map.removeLayer(circle)); // הסר את העיגולים
+            circles = [];
+
+            fetch(url)
+                .then(response => response.json())
+                .then(data => {
+                    currentLayer = L.geoJSON(data, {
+                        style: function (feature) {
+                            return {
+                                color: '#0000FF',
+                                weight: 6,
+                                opacity: 1,
+                                dashArray: '10, 5',
+                                lineJoin: 'round'
+                            };
+                        },
+                        onEachFeature: function (feature, layer) {
+                            highlightFirstAndLastPoint(layer);
+
+                            layer.on('click', function () {
+                                checkGeoJSONInPolygon(layer);
+                            });
+                        }
+                    }).addTo(map);
+
+                    var bounds = currentLayer.getBounds();
+                    map.fitBounds(bounds);
+                })
+                .catch(error => console.error('Error loading GeoJSON:', error));
+        }
+
+        function highlightFirstAndLastPoint(layer) {
+            var latlngs = layer.getLatLngs();
+            if (latlngs.length > 0) {
+                var firstPoint = latlngs[0];
+                var redCircle = L.circleMarker(firstPoint, {
+                    color: '#FF0000',
+                    radius: 12,
+                    weight: 3
+                }).addTo(map);
+                circles.push(redCircle); // הוסף את העיגול למערך
+
+                var lastPoint = latlngs[latlngs.length - 1];
+                var blueCircle = L.circleMarker(lastPoint, {
+                    color: '#0000FF',
+                    radius: 8,
+                    weight: 3
+                }).addTo(map);
+                circles.push(blueCircle); // הוסף את העיגול למערך
+            }
+        }
+
+        document.getElementById('searchAddress').addEventListener('input', function () {
+            var address = this.value;
+            if (address) {
+                fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${address}`)
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data[0]) {
+                            var lat = data[0].lat;
+                            var lon = data[0].lon;
+                            map.setView([lat, lon], 15);
+                        }
+                    })
+                    .catch(error => console.error('Error fetching address:', error));
+            }
+        });
+
+        document.getElementById('searchCoordinates').addEventListener('input', function () {
+            var coords = this.value.split(',');
+            if (coords.length === 2) {
+                var lat = parseFloat(coords[0]);
+                var lon = parseFloat(coords[1]);
+                if (!isNaN(lat) && !isNaN(lon)) {
+                    map.setView([lat, lon], 15);
+                }
+            }
+        });
+
+        var drawnItems = new L.FeatureGroup();
+        map.addLayer(drawnItems);
+
+        var drawControl = new L.Control.Draw({
+            edit: {
+                featureGroup: drawnItems
+            }
+        });
+        map.addControl(drawControl);
+
+        map.on('draw:created', function (e) {
+            var layer = e.layer;
+            drawnItems.addLayer(layer);
+
+            layer.on('click', function () {
+                checkGeoJSONInPolygon(layer);
+            });
+        });
+
+        function checkGeoJSONInPolygon(polygonLayer) {
+            var bounds = polygonLayer.getBounds();
+            var matchingFiles = [];
+
+            fetch('https://api.github.com/repos/CostaFanous/GtfsCosta/contents/')
+                .then(response => response.json())
+                .then(files => {
+                    files.forEach(file => {
+                        if (file.name.endsWith('.geojson')) {
+                            fetch(file.download_url)
+                                .then(response => response.json())
+                                .then(data => {
+                                    var geojsonLayer = L.geoJSON(data);
+                                    var geojsonBounds = geojsonLayer.getBounds();
+                                    if (geojsonBounds.intersects(bounds)) {
+                                        matchingFiles.push(file.name);
+                                    }
+                                })
+                                .catch(error => console.error('Error loading GeoJSON:', error));
+                        }
+                    });
+
+                    setTimeout(function () {
+                        var tableBody = document.querySelector('#polygon-table tbody');
+                        tableBody.innerHTML = '';
+                        
+                        if (matchingFiles.length > 0) {
+                            matchingFiles.forEach(fileName => {
+                                var row = document.createElement('tr');
+                                var cell = document.createElement('td');
+                                cell.textContent = fileName;
+                                row.appendChild(cell);
+                                tableBody.appendChild(row);
+                            });
+                            document.getElementById('polygon-table').style.display = 'table';
+                        } else {
+                            var row = document.createElement('tr');
+                            var cell = document.createElement('td');
+                            cell.textContent = 'אין קבצים חוצים את הפוליגון';
+                            row.appendChild(cell);
+                            tableBody.appendChild(row);
+                            document.getElementById('polygon-table').style.display = 'table';
+                        }
+                    }, 1000);
+                });
+        }
+
+        var selectedFile = null; // משתנה לשמירה על הקובץ שנבחר
+
+        fetch('https://api.github.com/repos/CostaFanous/GtfsCosta/contents/')
+            .then(response => response.json())
+            .then(files => {
+                var routesList = document.getElementById('routes-list');
+                files.forEach(file => {
+                    if (file.name.endsWith('.geojson')) {
+                        var li = document.createElement('li');
+                        li.textContent = file.name;
+                        li.addEventListener('click', function () {
+                            // אם הלחיצה היא על אותו קובץ שנבחר קודם, בטל את העלאת הקובץ, הסימון והעיגולים
+                            if (selectedFile === li) {
+                                li.classList.remove('selected'); // ביטול הרקע האפור
+                                map.removeLayer(currentLayer); // הסר את ה-GEOJSON מהמפה
+                                circles.forEach(circle => map.removeLayer(circle)); // הסר את העיגולים
+                                circles = []; // אפס את העיגולים
+                                currentLayer = null; // אפס את currentLayer
+                                selectedFile = null; // אפס את הקובץ שנבחר
+                            } else {
+                                // אם מדובר בקובץ חדש, הסר את הסגנון מהקובץ הקודם
+                                if (selectedFile) {
+                                    selectedFile.classList.remove('selected'); // ביטול הרקע האפור
+                                    map.removeLayer(currentLayer); // הסר את ה-GEOJSON מהמפה
+                                    circles.forEach(circle => map.removeLayer(circle)); // הסר את העיגולים
+                                    circles = []; // אפס את העיגולים
+                                }
+                                li.classList.add('selected'); // הוסף את הרקע האפור לקובץ החדש
+                                selectedFile = li; // שמור את הקובץ שנבחר
+                                addGeoJSON(file.download_url); // הוסף את ה-GEOJSON למפה
+                            }
+                        });
+                        routesList.appendChild(li);
+                    }
+                });
+            })
+            .catch(error => console.error('Error loading files:', error));
+    </script>
+</body>
+</html>
