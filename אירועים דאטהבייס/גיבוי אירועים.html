@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>הכנסת נתונים לטבלה עם מפה</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.7.1/dist/leaflet.css" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.css" />
+    <style>
+        body { font-family: Arial, sans-serif; background-color: #f4f4f9; text-align: right; }
+        h2 { text-align: center; color: #333; margin-top: 50px; }
+        table { width: 80%; margin: 30px auto; border-collapse: collapse; direction: rtl; }
+        th, td { padding: 12px; text-align: center; border: 1px solid #ddd; }
+        th { background-color: #4CAF50; color: white; }
+        tr:nth-child(even) { background-color: #f2f2f2; }
+        tr:hover { background-color: #ddd; }
+        #map { height: 400px; width: 100%; }
+        #mapContainer { display: none; position: fixed; top: 0; left: 0; z-index: 1000; width: 100%; height: 100%; background: rgba(0, 0, 0, 0.7); }
+        button { margin-top: 20px; padding: 10px 20px; background-color: #4CAF50; color: white; border: none; cursor: pointer; border-radius: 5px; }
+        .form-container { margin-top: 20px; text-align: center; }
+        .form-container input, .form-container select, .form-container textarea { width: 100%; padding: 10px; margin: 10px 0; }
+    </style>
+</head>
+<body>
+    <h2>הוסף נתונים לטבלה</h2>
+    <form id="dataForm">
+        <label for="startDate">תאריך התחלה:</label>
+        <input type="date" id="startDate" required><br><br>
+        <label for="endDate">תאריך סיום:</label>
+        <input type="date" id="endDate" required><br><br>
+        <label for="event">אירוע:</label>
+        <input type="text" id="event" required><br><br>
+        <label for="eventType">סוג אירוע:</label>
+        <select id="eventType" required>
+            <option value="תאונה">תאונה</option>
+            <option value="עבודות תשתית">עבודות תשתית</option>
+            <option value="אירוע ביטחוני">אירוע ביטחוני</option>
+            <option value="רכב תקוע">רכב תקוע</option>
+        </select><br><br>
+        <label for="location">מיקום (פוליגון):</label>
+        <input type="text" id="location" readonly><br><br>
+        <label for="filesInPolygon">קבצים בפוליגון:</label>
+        <input type="text" id="filesInPolygon" readonly><br><br>
+        <button type="button" id="openMapBtn">בחר מיקום במפה</button>
+        <button type="submit">הוסף נתון</button>
+    </form>
+
+    <table id="dataTable">
+        <thead>
+            <tr>
+                <th>תאריך התחלה</th>
+                <th>תאריך סיום</th>
+                <th>אירוע</th>
+                <th>סוג אירוע</th>
+                <th>מיקום</th>
+                <th>קבצים בפוליגון</th>
+            </tr>
+        </thead>
+        <tbody></tbody>
+    </table>
+
+    <div id="mapContainer">
+        <div id="map"></div>
+        <button onclick="closeMap()">סגור</button>
+    </div>
+
+    <script src="https://unpkg.com/leaflet@1.7.1/dist/leaflet.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.js"></script>
+    <script>
+        var map, drawnItems, polygon;
+        
+        function initializeMap() {
+            map = L.map('map').setView([31.7683, 35.2137], 7);
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
+            drawnItems = new L.FeatureGroup();
+            map.addLayer(drawnItems);
+            new L.Control.Draw({
+                draw: { polygon: true, marker: false, circle: false, rectangle: false, polyline: false },
+                edit: { featureGroup: drawnItems }
+            }).addTo(map);
+            map.on(L.Draw.Event.CREATED, function (event) {
+                drawnItems.clearLayers();
+                polygon = event.layer;
+                drawnItems.addLayer(polygon);
+                document.getElementById('location').value = JSON.stringify(polygon.toGeoJSON().geometry.coordinates);
+                checkGeoJSONInPolygon();
+            });
+        }
+        
+        function checkGeoJSONInPolygon() {
+            fetch('https://api.github.com/repos/CostaFanous/Gtfs_Costa/contents/')
+                .then(response => response.json())
+                .then(files => {
+                    let matchingFiles = [];
+                    let locationData = document.getElementById('location').value;
+                    files.filter(file => file.name.endsWith('.geojson')).forEach(file => {
+                        matchingFiles.push(file.name);
+                    });
+                    document.getElementById('filesInPolygon').value = matchingFiles.join(', ');
+                });
+        }
+        
+        document.getElementById('openMapBtn').addEventListener('click', function() {
+            document.getElementById('mapContainer').style.display = 'block';
+            initializeMap();
+        });
+        function closeMap() { document.getElementById('mapContainer').style.display = 'none'; }
+    </script>
+</body>
+</html>

@@ -165,7 +165,7 @@
             var bounds = polygonLayer.getBounds();
             var matchingFiles = [];
 
-            fetch('https://api.github.com/repos/CostaFanous/GtfsCosta/contents/')
+            fetch('https://api.github.com/repos/CostaFanous/Gtfs_Costa/contents/')
                 .then(response => response.json())
                 .then(files => {
                     files.forEach(file => {
@@ -210,7 +210,7 @@
 
         var selectedFile = null; // משתנה לשמירה על הקובץ שנבחר
 
-        fetch('https://api.github.com/repos/CostaFanous/GtfsCosta/contents/')
+        fetch('https://api.github.com/repos/CostaFanous/Gtfs_Costa/contents/')
             .then(response => response.json())
             .then(files => {
                 var routesList = document.getElementById('routes-list');
